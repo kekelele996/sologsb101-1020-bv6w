@@ -46,7 +46,7 @@ import {
   selectRubbings,
   setRubbingSteleFilter,
 } from '@/stores/rubbingSlice';
-import { selectCompares, selectLosses } from '@/stores/lossSlice';
+import { selectCompares, selectCompareStaleness, selectLosses } from '@/stores/lossSlice';
 import {
   STELE_FORM_COLOR,
   STELE_FORM_LABEL,
@@ -56,7 +56,7 @@ import {
   type SteleDraft,
   type SteleForm,
 } from '@/types/stele';
-import { COMPARE_CONCLUSION_LABEL } from '@/types/compare';
+import { COMPARE_CONCLUSION_LABEL, effectiveConclusion, effectiveDate } from '@/types/compare';
 import type { Seal } from '@/types/seal';
 
 const FILTER_KEYS = ['era', 'form'] as const;
@@ -74,6 +74,7 @@ export default function SteleList() {
   const rubbings = useAppSelector(selectRubbings);
   const losses = useAppSelector(selectLosses);
   const compares = useAppSelector(selectCompares);
+  const staleness = useAppSelector(selectCompareStaleness);
   const sealTable = useIdbTable<Seal>((database) => database.seals, { sortByUpdatedAt: false });
 
   const url = useFilterQuery(FILTER_KEYS);
@@ -97,19 +98,23 @@ export default function SteleList() {
 
   const statOfStele = (
     steleId: string,
-  ): { rubbings: number; diff: number; loss: number; seal: number; conclusion: string } => {
+  ): { rubbings: number; diff: number; loss: number; seal: number; conclusion: string; reviewed: boolean; stale: boolean } => {
     const steleRubbings = rubbings.filter((rubbing) => rubbing.steleId === steleId);
     const rubbingIds = steleRubbings.map((rubbing) => rubbing.id);
     const steleCompares = compares.filter((compare) => compare.steleId === steleId);
-    const lastCompare = [...steleCompares].sort((a, b) => b.date.localeCompare(a.date))[0];
+    // 最近结论按生效日期（复核记录取复核日期）取最新一条
+    const lastCompare = [...steleCompares].sort((a, b) => effectiveDate(b).localeCompare(effectiveDate(a)))[0];
+    const stale = lastCompare ? (staleness[lastCompare.id]?.stale ?? false) : false;
     return {
       rubbings: steleRubbings.length,
       diff: steleCompares.reduce((sum, compare) => sum + compare.diffCount, 0),
       loss: losses.filter((loss) => rubbingIds.includes(loss.rubbingId)).length,
       seal: sealTable.rows.filter((seal) => rubbingIds.includes(seal.rubbingId)).length,
       conclusion: lastCompare
-        ? `${COMPARE_CONCLUSION_LABEL[lastCompare.conclusion]}（${lastCompare.date}）`
+        ? `${COMPARE_CONCLUSION_LABEL[effectiveConclusion(lastCompare)]}（${effectiveDate(lastCompare)}）`
         : '尚无比对',
+      reviewed: lastCompare ? Boolean(lastCompare.review) : false,
+      stale,
     };
   };
 
@@ -260,7 +265,11 @@ export default function SteleList() {
                       <Typography.Text>
                         版本差异 <strong>{stat.diff}</strong> 字 · 钤印 {stat.seal} 方
                       </Typography.Text>
-                      <Typography.Text type="secondary">最近断代：{stat.conclusion}</Typography.Text>
+                      <Typography.Text type="secondary">
+                        最近断代：{stat.conclusion}
+                        {stat.reviewed ? <Tag color="blue" style={{ marginInlineStart: 6 }}>已复核</Tag> : null}
+                        {stat.stale ? <Tag color="volcano" style={{ marginInlineStart: 6 }}>待重核</Tag> : null}
+                      </Typography.Text>
                       <Space size={4} wrap>
                         {losses
                           .filter((loss) => rubbings.some((rubbing) => rubbing.id === loss.rubbingId && rubbing.steleId === stele.id))

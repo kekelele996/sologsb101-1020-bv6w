@@ -6,12 +6,11 @@ import type { Stele } from '@/types/stele';
 import type { Rubbing } from '@/types/rubbing';
 import type { Loss } from '@/types/loss';
 import type { Seal } from '@/types/seal';
-import type { Compare } from '@/types/compare';
+import { COMPARE_CONCLUSION_LABEL, effectiveConclusion, type Compare } from '@/types/compare';
 import { STELE_FORM_LABEL } from '@/types/stele';
 import { INK_TONE_LABEL, RUBBING_METHOD_LABEL, RUBBING_STATE_LABEL } from '@/types/rubbing';
 import { LOSS_SEVERITY_LABEL, LOSS_TYPE_LABEL } from '@/types/loss';
 import { SEAL_TYPE_LABEL, sealPositionWeight } from '@/types/seal';
-import { COMPARE_CONCLUSION_LABEL } from '@/types/compare';
 import { diffLosses, encodeCoord, sortLosses } from './collate';
 import type { RubbingSnapshot } from './db';
 
@@ -90,11 +89,24 @@ export function buildCatalogCard(
   steleCompares.forEach((compare) => {
     const a = rubbings.find((item) => item.id === compare.rubbingIdA);
     const b = rubbings.find((item) => item.id === compare.rubbingIdB);
+    // 结论以复核为准；未复核照旧用系统推断值
+    const recomputed = diffLosses(
+      losses.filter((loss) => loss.rubbingId === compare.rubbingIdA),
+      losses.filter((loss) => loss.rubbingId === compare.rubbingIdB),
+    ).diffCount;
+    const stale = recomputed !== compare.diffCount;
     lines.push(
       `　${compare.date}　A：第 ${a?.versionNo ?? '?'} 版　B：第 ${b?.versionNo ?? '?'} 版　差异 ${compare.diffCount} 字　结论 ${
-        COMPARE_CONCLUSION_LABEL[compare.conclusion]
-      }　操作人 ${compare.operator || '未填'}`,
+        COMPARE_CONCLUSION_LABEL[effectiveConclusion(compare)]
+      }　操作人 ${compare.operator || '未填'}${
+        compare.review
+          ? `　【复核】${compare.review.date} ${compare.review.reviewer || '未填复核人'} 复核结论 ${COMPARE_CONCLUSION_LABEL[compare.review.conclusion]}`
+          : ''
+      }`,
     );
+    if (stale) {
+      lines.push(`　　⚠ 待重核：字位补标后按当前标注重算差异为 ${recomputed} 字，与存下的 ${compare.diffCount} 字不一致`);
+    }
   });
   return lines.join('\n');
 }

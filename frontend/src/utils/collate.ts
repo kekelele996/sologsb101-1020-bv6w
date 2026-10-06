@@ -135,12 +135,32 @@ export function diffLosses(lossesA: Loss[], lossesB: Loss[]): LossDiffResult {
   };
 }
 
+/** 取比对涉及的两个拓本 id（按 A、B 归一化，便于匹配无向的比对记录） */
+export interface ComparePairLike {
+  rubbingIdA: string;
+  rubbingIdB: string;
+}
+
+/**
+ * 按当前字位标注重算一条比对记录的差异字数。
+ * 字位补标后调用：重算值与落库存的 diffCount 不一致时，该记录应标为待重核。
+ */
+export function recomputeDiffCount(
+  pair: ComparePairLike,
+  losses: Loss[],
+): { diffCount: number; result: LossDiffResult } {
+  const result = diffLosses(
+    losses.filter((loss) => loss.rubbingId === pair.rubbingIdA),
+    losses.filter((loss) => loss.rubbingId === pair.rubbingIdB),
+  );
+  return { diffCount: result.diffCount, result };
+}
+
 /**
  * 断代规则匹配：拓本 A 相对 B 多出的损泐（仅 A 有损）说明 A 拓制更晚、石面更损；
  * 反之则 A 更早。差异全部为程度不同时按程度权重之和判断。
  */
-export function matchConclusion(result: LossDiffResult): CompareConclusion {
-  if (result.diffCount === 0) return 'same';
+export function matchConclusion(result: LossDiffResult): CompareConclusion {  if (result.diffCount === 0) return 'same';
   const weightA = result.rows.reduce((sum, row) => sum + Math.max(0, row.severityDelta), 0);
   const weightB = result.rows.reduce((sum, row) => sum + Math.max(0, -row.severityDelta), 0);
   const scoreB = result.onlyACount * 2 + weightB;

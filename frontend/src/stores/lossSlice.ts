@@ -5,8 +5,9 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { createId, db } from '@/utils/db';
 import type { Loss, LossDraft, LossSeverity, LossType } from '@/types/loss';
-import type { Compare, CompareDraft } from '@/types/compare';
-import { sortLosses } from '@/utils/collate';
+import type { Compare, CompareDraft, CompareReviewDraft } from '@/types/compare';
+import { effectiveDate } from '@/types/compare';
+import { recomputeDiffCount, sortLosses } from '@/utils/collate';
 import type { RootState } from './store';
 
 export interface LossFilters {
@@ -40,7 +41,8 @@ const initialState: LossState = {
 
 export const loadLosses = createAsyncThunk('loss/load', async () => {
   const [losses, compares] = await Promise.all([db.losses.toArray(), db.compares.toArray()]);
-  compares.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // 最近结论优先：补记复核的记录按复核日期参与排序
+  compares.sort((a, b) => effectiveDate(b).localeCompare(effectiveDate(a)));
   return { losses: sortLosses(losses), compares };
 });
 
@@ -90,6 +92,15 @@ export const updateCompare = createAsyncThunk(
   'compare/update',
   async (payload: { id: string; patch: Partial<Compare> }, { dispatch }) => {
     await db.compares.update(payload.id, { ...payload.patch, updatedAt: Date.now() } as never);
+    await dispatch(loadLosses());
+  },
+);
+
+/** 为比对记录补记一次复核（每条记录至多一次；复核后各处结论以复核为准） */
+export const saveCompareReview = createAsyncThunk(
+  'compare/review',
+  async (payload: { id: string; review: CompareReviewDraft }, { dispatch }) => {
+    await db.compares.update(payload.id, { review: { ...payload.review }, updatedAt: Date.now() } as never);
     await dispatch(loadLosses());
   },
 );
@@ -175,6 +186,26 @@ export function selectLossCountByRubbing(state: RootState): Record<string, numbe
   const result: Record<string, number> = {};
   state.loss.items.forEach((loss) => {
     result[loss.rubbingId] = (result[loss.rubbingId] ?? 0) + 1;
+  });
+  return result;
+}
+
+export interface CompareStaleness {
+  /** 按当前字位标注重算的差异字数 */
+  recomputed: number;
+  /** 重算值与落库存的差异字数不一致 → 待重核 */
+  stale: boolean;
+}
+
+/**
+ * 派生选择器：逐条比对记录按当前字位标注重算差异字数。
+ * 字位补标后，重算值与保存时落库的 diffCount 对不上的记录标为待重核。
+ */
+export function selectCompareStaleness(state: RootState): Record<string, CompareStaleness> {
+  const result: Record<string, CompareStaleness> = {};
+  state.loss.compares.forEach((compare) => {
+    const recomputed = recomputeDiffCount(compare, state.loss.items).diffCount;
+    result[compare.id] = { recomputed, stale: recomputed !== compare.diffCount };
   });
   return result;
 }

@@ -33,10 +33,10 @@ import { useAppDispatch, useAppSelector } from '@/stores/store';
 import { loadAll } from '@/stores/store';
 import { selectSteles, setCurrentStele } from '@/stores/steleSlice';
 import { selectRubbings } from '@/stores/rubbingSlice';
-import { selectCompares, selectLosses } from '@/stores/lossSlice';
+import { selectCompares, selectCompareStaleness, selectLosses } from '@/stores/lossSlice';
 import { SEAL_TYPE_COLOR, SEAL_TYPE_LABEL, sealPositionWeight, type Seal, type SealType } from '@/types/seal';
 import { RUBBING_METHOD_LABEL, RUBBING_STATE_LABEL } from '@/types/rubbing';
-import { COMPARE_CONCLUSION_COLOR, COMPARE_CONCLUSION_LABEL } from '@/types/compare';
+import { COMPARE_CONCLUSION_COLOR, COMPARE_CONCLUSION_LABEL, effectiveConclusion } from '@/types/compare';
 import {
   DB_NAME,
   DB_SCHEMA_VERSION,
@@ -66,6 +66,7 @@ export default function ExportView() {
   const rubbings = useAppSelector(selectRubbings);
   const losses = useAppSelector(selectLosses);
   const compares = useAppSelector(selectCompares);
+  const staleness = useAppSelector(selectCompareStaleness);
   const sealTable = useIdbTable<Seal>((database) => database.seals, { sortByUpdatedAt: false });
 
   const [steleId, setSteleId] = useState<string>('');
@@ -111,7 +112,9 @@ export default function ExportView() {
       passPercent:
         compares.length === 0
           ? 0
-          : Math.round((compares.filter((compare) => compare.conclusion !== 'pending').length / compares.length) * 100),
+          : Math.round(
+              (compares.filter((compare) => effectiveConclusion(compare) !== 'pending').length / compares.length) * 100,
+            ),
     }),
     [compares, losses.length, rubbings.length, sealTable.rows.length, steles.length],
   );
@@ -410,11 +413,21 @@ export default function ExportView() {
               )}
               {compares
                 .filter((compare) => compare.steleId === activeSteleId)
-                .map((compare) => (
-                  <Tag key={compare.id} color={COMPARE_CONCLUSION_COLOR[compare.conclusion]}>
-                    {compare.date} 比对结论：{COMPARE_CONCLUSION_LABEL[compare.conclusion]}（差异 {compare.diffCount} 字）
-                  </Tag>
-                ))}
+                .map((compare) => {
+                  const conclusion = effectiveConclusion(compare);
+                  const status = staleness[compare.id];
+                  return (
+                    <Space key={compare.id} size={4} wrap>
+                      <Tag color={COMPARE_CONCLUSION_COLOR[conclusion]}>
+                        {compare.date} 结论：{COMPARE_CONCLUSION_LABEL[conclusion]}（差异 {compare.diffCount} 字）
+                        {compare.review ? '·已复核' : ''}
+                      </Tag>
+                      {status?.stale ? (
+                        <Tag color="volcano">待重核（重算 {status.recomputed} 字）</Tag>
+                      ) : null}
+                    </Space>
+                  );
+                })}
             </Space>
           </Card>
         </Col>

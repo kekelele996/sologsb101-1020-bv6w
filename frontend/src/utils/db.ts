@@ -220,7 +220,19 @@ export async function seedDatabase(): Promise<void> {
   ];
 
   const compares: Compare[] = [
-    { id: 'cmp_0101', steleId: 'stele_01', rubbingIdA: 'rub_0101', rubbingIdB: 'rub_0102', diffCount: 3, conclusion: 'early', operator: '傅砚', date: '2026-03-06', createdAt: now - day * 5, updatedAt: now - day * 5 },
+    {
+      id: 'cmp_0101',
+      steleId: 'stele_01',
+      rubbingIdA: 'rub_0101',
+      rubbingIdB: 'rub_0102',
+      diffCount: 3,
+      conclusion: 'early',
+      operator: '傅砚',
+      date: '2026-03-06',
+      review: { reviewer: '沈章', conclusion: 'same', date: '2026-03-16' },
+      createdAt: now - day * 5,
+      updatedAt: now - day * 4,
+    },
     { id: 'cmp_0201', steleId: 'stele_02', rubbingIdA: 'rub_0201', rubbingIdB: 'rub_0202', diffCount: 1, conclusion: 'late', operator: '傅砚', date: '2026-03-08', createdAt: now - day * 3, updatedAt: now - day * 3 },
   ];
 
