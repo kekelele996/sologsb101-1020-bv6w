@@ -34,12 +34,15 @@ import { selectRubbings } from '@/stores/rubbingSlice';
 import {
   loadLosses,
   removeCompare,
+  reviewCompare,
   saveCompare,
+  selectCompareRowsWithStatus,
   selectCompares,
   selectLosses,
   setCompareA,
   setCompareB,
   updateCompare,
+  type CompareRowWithStatus,
 } from '@/stores/lossSlice';
 import { LOSS_TYPE_OPTIONS, type LossType } from '@/types/loss';
 import {
@@ -48,8 +51,8 @@ import {
   COMPARE_CONCLUSION_OPTIONS,
   createEmptyCompareDraft,
   type Compare,
-  type CompareConclusion,
   type CompareDraft,
+  type CompareReviewDraft,
 } from '@/types/compare';
 import { buildDiffText, copyText } from '@/utils/export';
 import { encodeCoord } from '@/utils/collate';
@@ -60,10 +63,12 @@ export default function CompareView() {
   const { message } = AntdApp.useApp();
   const dispatch = useAppDispatch();
   const [form] = Form.useForm<CompareDraft>();
+  const [reviewForm] = Form.useForm<CompareReviewDraft>();
 
   const steles = useAppSelector(selectSteles);
   const rubbings = useAppSelector(selectRubbings);
   const compares = useAppSelector(selectCompares);
+  const compareRows = useAppSelector(selectCompareRowsWithStatus);
   const losses = useAppSelector(selectLosses);
   const compareAId = useAppSelector((state) => state.loss.compareAId);
   const compareBId = useAppSelector((state) => state.loss.compareBId);
@@ -73,6 +78,7 @@ export default function CompareView() {
   const [steleId, setSteleId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Compare | null>(null);
+  const [reviewing, setReviewing] = useState<Compare | null>(null);
 
   useEffect(() => {
     if (steleId.length === 0) {
@@ -184,7 +190,24 @@ export default function CompareView() {
     setOpen(false);
   };
 
-  const columns: ColumnsType<Compare> = [
+  const openReview = (compare: Compare): void => {
+    setReviewing(compare);
+    reviewForm.setFieldsValue({
+      reviewer: compare.reviewer ?? '',
+      reviewConclusion: compare.reviewConclusion ?? compare.conclusion,
+      reviewDate: compare.reviewDate ?? new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const submitReview = async (): Promise<void> => {
+    if (!reviewing) return;
+    const values = await reviewForm.validateFields();
+    await dispatch(reviewCompare({ id: reviewing.id, review: values })).unwrap();
+    message.success(`已补记复核，结论以「${COMPARE_CONCLUSION_LABEL[values.reviewConclusion]}」为准`);
+    setReviewing(null);
+  };
+
+  const columns: ColumnsType<CompareRowWithStatus> = [
     { title: '比对日期', dataIndex: 'date', width: 120, sorter: (a, b) => a.date.localeCompare(b.date) },
     {
       title: 'A 拓本',
@@ -198,24 +221,68 @@ export default function CompareView() {
       width: 110,
       render: (value: string) => `第 ${rubbings.find((item) => item.id === value)?.versionNo ?? '?'} 版`,
     },
-    { title: '差异字数', dataIndex: 'diffCount', width: 110, sorter: (a, b) => a.diffCount - b.diffCount },
+    {
+      title: '差异字数',
+      dataIndex: 'diffCount',
+      width: 130,
+      sorter: (a, b) => a.diffCount - b.diffCount,
+      render: (_value, record) => (
+        <Space size={4} wrap>
+          <span>{record.diffCount} 字</span>
+          {record.needsRecheck ? (
+            <Tag color="warning" title={`字位补标后重算为 ${record.recomputedDiffCount} 字，与存档值不一致`}>
+              待重核（{record.recomputedDiffCount}）
+            </Tag>
+          ) : null}
+        </Space>
+      ),
+    },
     {
       title: '断代结论',
-      dataIndex: 'conclusion',
-      width: 110,
-      render: (value: CompareConclusion) => (
-        <Tag color={COMPARE_CONCLUSION_COLOR[value]}>{COMPARE_CONCLUSION_LABEL[value]}</Tag>
+      dataIndex: 'effectiveConclusion',
+      width: 130,
+      render: (_value, record) => (
+        <Space size={4} wrap>
+          <Tag color={COMPARE_CONCLUSION_COLOR[record.effectiveConclusion]}>
+            {COMPARE_CONCLUSION_LABEL[record.effectiveConclusion]}
+          </Tag>
+          {record.reviewed ? <Tag color="success">已复核</Tag> : null}
+        </Space>
       ),
+    },
+    {
+      title: '复核',
+      key: 'review',
+      width: 140,
+      render: (_value, record) =>
+        record.reviewed ? (
+          <Space direction="vertical" size={0}>
+            <Typography.Text>{record.reviewer || '未填复核人'}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {record.reviewDate}
+            </Typography.Text>
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">未复核</Typography.Text>
+        ),
     },
     { title: '操作人', dataIndex: 'operator', width: 110, render: (value: string) => value || '未填' },
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 210,
       render: (_value, record) => (
         <Space size={4}>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
             编辑
+          </Button>
+          <Button
+            size="small"
+            type="link"
+            icon={<SaveOutlined />}
+            onClick={() => openReview(record)}
+          >
+            {record.reviewed ? '改复核' : '复核'}
           </Button>
           <Popconfirm
             title="删除该比对记录"
@@ -394,12 +461,12 @@ export default function CompareView() {
                 size="small"
               />
             ) : (
-              <Table<Compare>
+              <Table<CompareRowWithStatus>
                 rowKey="id"
                 size="small"
                 pagination={{ pageSize: 6 }}
                 columns={columns}
-                dataSource={compares.filter((compare) => compare.steleId === steleId)}
+                dataSource={compareRows.filter((compare) => compare.steleId === steleId)}
               />
             )}
           </Card>
@@ -447,6 +514,41 @@ export default function CompareView() {
           <Form.Item name="steleId" hidden>
             <Input />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={reviewing !== null}
+        title="补记复核"
+        onCancel={() => setReviewing(null)}
+        onOk={() => void submitReview()}
+        okText="保存复核"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            reviewing
+              ? `存档结论：${COMPARE_CONCLUSION_LABEL[reviewing.conclusion]}（差异 ${reviewing.diffCount} 字）`
+              : ''
+          }
+          description="每条比对记录仅补记一次复核；复核后比对台该行与碑刻台账的最近结论均以复核结论为准。"
+        />
+        <Form form={reviewForm} layout="vertical" preserve={false}>
+          <Form.Item name="reviewConclusion" label="复核结论" rules={[{ required: true }]}>
+            <Select options={[...COMPARE_CONCLUSION_OPTIONS]} />
+          </Form.Item>
+          <Space size={12} style={{ display: 'flex' }}>
+            <Form.Item name="reviewer" label="复核人" style={{ flex: 1 }}>
+              <Input placeholder="如：傅砚" />
+            </Form.Item>
+            <Form.Item name="reviewDate" label="复核日期" rules={[{ required: true }]} style={{ flex: 1 }}>
+              <Input type="date" />
+            </Form.Item>
+          </Space>
         </Form>
       </Modal>
     </div>

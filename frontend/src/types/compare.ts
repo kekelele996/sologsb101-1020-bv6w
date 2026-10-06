@@ -22,11 +22,34 @@ export interface Compare {
   operator: string;
   /** 比对日期 yyyy-MM-dd */
   date: string;
+  /** 复核人（补记复核后填写） */
+  reviewer?: string;
+  /** 复核结论（补记复核后以该结论为准） */
+  reviewConclusion?: CompareConclusion;
+  /** 复核日期 yyyy-MM-dd */
+  reviewDate?: string;
   createdAt: number;
   updatedAt: number;
 }
 
 export type CompareDraft = Omit<Compare, 'id' | 'createdAt' | 'updatedAt'>;
+
+/** 复核草稿：每条比对记录仅补记一次复核 */
+export interface CompareReviewDraft {
+  reviewer: string;
+  reviewConclusion: CompareConclusion;
+  reviewDate: string;
+}
+
+/** 比对记录是否已补记复核 */
+export function isCompareReviewed(compare: Compare): boolean {
+  return typeof compare.reviewConclusion === 'string' && compare.reviewConclusion.length > 0;
+}
+
+/** 生效结论：已复核以复核结论为准，未复核沿用存档结论 */
+export function effectiveConclusion(compare: Compare): CompareConclusion {
+  return isCompareReviewed(compare) ? (compare.reviewConclusion as CompareConclusion) : compare.conclusion;
+}
 
 export const COMPARE_CONCLUSION_LABEL: Record<CompareConclusion, string> = {
   early: '早本',

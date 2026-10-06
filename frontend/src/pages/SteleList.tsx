@@ -46,7 +46,7 @@ import {
   selectRubbings,
   setRubbingSteleFilter,
 } from '@/stores/rubbingSlice';
-import { selectCompares, selectLosses } from '@/stores/lossSlice';
+import { selectCompareRowsWithStatus, selectLosses } from '@/stores/lossSlice';
 import {
   STELE_FORM_COLOR,
   STELE_FORM_LABEL,
@@ -73,7 +73,7 @@ export default function SteleList() {
   const currentSteleId = useAppSelector((state) => state.stele.currentSteleId);
   const rubbings = useAppSelector(selectRubbings);
   const losses = useAppSelector(selectLosses);
-  const compares = useAppSelector(selectCompares);
+  const compares = useAppSelector(selectCompareRowsWithStatus);
   const sealTable = useIdbTable<Seal>((database) => database.seals, { sortByUpdatedAt: false });
 
   const url = useFilterQuery(FILTER_KEYS);
@@ -108,7 +108,9 @@ export default function SteleList() {
       loss: losses.filter((loss) => rubbingIds.includes(loss.rubbingId)).length,
       seal: sealTable.rows.filter((seal) => rubbingIds.includes(seal.rubbingId)).length,
       conclusion: lastCompare
-        ? `${COMPARE_CONCLUSION_LABEL[lastCompare.conclusion]}（${lastCompare.date}）`
+        ? `${COMPARE_CONCLUSION_LABEL[lastCompare.effectiveConclusion]}（${
+            lastCompare.reviewed ? lastCompare.reviewDate : lastCompare.date
+          }）${lastCompare.needsRecheck ? ' · 待重核' : ''}`
         : '尚无比对',
     };
   };

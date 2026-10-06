@@ -2,11 +2,12 @@
  * 损泐与比对 slice（Redux Toolkit）
  * 维护字位损泐集合、比对记录与比对 A/B 选择及筛选条件。
  */
-import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { createId, db } from '@/utils/db';
 import type { Loss, LossDraft, LossSeverity, LossType } from '@/types/loss';
-import type { Compare, CompareDraft } from '@/types/compare';
-import { sortLosses } from '@/utils/collate';
+import type { Compare, CompareDraft, CompareReviewDraft } from '@/types/compare';
+import { effectiveConclusion, isCompareReviewed } from '@/types/compare';
+import { diffLosses, sortLosses } from '@/utils/collate';
 import type { RootState } from './store';
 
 export interface LossFilters {
@@ -94,6 +95,23 @@ export const updateCompare = createAsyncThunk(
   },
 );
 
+/** 补记复核：每条比对记录仅一次，写入复核人 / 复核结论 / 复核日期 */
+export const reviewCompare = createAsyncThunk(
+  'compare/review',
+  async (payload: { id: string; review: CompareReviewDraft }, { dispatch }) => {
+    await db.compares.update(
+      payload.id,
+      {
+        reviewer: payload.review.reviewer,
+        reviewConclusion: payload.review.reviewConclusion,
+        reviewDate: payload.review.reviewDate,
+        updatedAt: Date.now(),
+      } as never,
+    );
+    await dispatch(loadLosses());
+  },
+);
+
 export const removeCompare = createAsyncThunk('compare/remove', async (id: string, { dispatch }) => {
   await db.compares.delete(id);
   await dispatch(loadLosses());
@@ -154,6 +172,37 @@ export const {
 export const selectLossState = (state: RootState): LossState => state.loss;
 export const selectLosses = (state: RootState): Loss[] => state.loss.items;
 export const selectCompares = (state: RootState): Compare[] => state.loss.compares;
+
+export interface CompareRowWithStatus extends Compare {
+  /** 按当前字位重算的差异字数 */
+  recomputedDiffCount: number;
+  /** 重算差异字数与存档值不一致（字位补标所致）→ 待重核 */
+  needsRecheck: boolean;
+  /** 是否已补记复核 */
+  reviewed: boolean;
+  /** 生效结论：已复核以复核结论为准，否则沿用存档结论 */
+  effectiveConclusion: Compare['conclusion'];
+}
+
+/** 比对记录派生状态：按当前字位重算差异字数，标出待重核并给出以复核为准的生效结论 */
+export const selectCompareRowsWithStatus = createSelector(
+  [selectCompares, selectLosses],
+  (compares, losses): CompareRowWithStatus[] =>
+    compares.map((compare) => {
+      const recomputed = diffLosses(
+        losses.filter((loss) => loss.rubbingId === compare.rubbingIdA),
+        losses.filter((loss) => loss.rubbingId === compare.rubbingIdB),
+      ).diffCount;
+      const reviewed = isCompareReviewed(compare);
+      return {
+        ...compare,
+        recomputedDiffCount: recomputed,
+        needsRecheck: recomputed !== compare.diffCount,
+        reviewed,
+        effectiveConclusion: effectiveConclusion(compare),
+      };
+    }),
+);
 
 /** 派生选择器：关键字 + 类型 + 程度筛选（全库维度） */
 export function selectFilteredLosses(state: RootState): Loss[] {

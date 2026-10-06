@@ -36,7 +36,7 @@ import { selectRubbings } from '@/stores/rubbingSlice';
 import { selectCompares, selectLosses } from '@/stores/lossSlice';
 import { SEAL_TYPE_COLOR, SEAL_TYPE_LABEL, sealPositionWeight, type Seal, type SealType } from '@/types/seal';
 import { RUBBING_METHOD_LABEL, RUBBING_STATE_LABEL } from '@/types/rubbing';
-import { COMPARE_CONCLUSION_COLOR, COMPARE_CONCLUSION_LABEL } from '@/types/compare';
+import { COMPARE_CONCLUSION_COLOR, COMPARE_CONCLUSION_LABEL, effectiveConclusion, isCompareReviewed } from '@/types/compare';
 import {
   DB_NAME,
   DB_SCHEMA_VERSION,
@@ -111,7 +111,9 @@ export default function ExportView() {
       passPercent:
         compares.length === 0
           ? 0
-          : Math.round((compares.filter((compare) => compare.conclusion !== 'pending').length / compares.length) * 100),
+          : Math.round(
+              (compares.filter((compare) => effectiveConclusion(compare) !== 'pending').length / compares.length) * 100,
+            ),
     }),
     [compares, losses.length, rubbings.length, sealTable.rows.length, steles.length],
   );
@@ -410,11 +412,16 @@ export default function ExportView() {
               )}
               {compares
                 .filter((compare) => compare.steleId === activeSteleId)
-                .map((compare) => (
-                  <Tag key={compare.id} color={COMPARE_CONCLUSION_COLOR[compare.conclusion]}>
-                    {compare.date} 比对结论：{COMPARE_CONCLUSION_LABEL[compare.conclusion]}（差异 {compare.diffCount} 字）
-                  </Tag>
-                ))}
+                .map((compare) => {
+                  const reviewed = isCompareReviewed(compare);
+                  const conclusion = effectiveConclusion(compare);
+                  return (
+                    <Tag key={compare.id} color={COMPARE_CONCLUSION_COLOR[conclusion]}>
+                      {compare.date} 比对结论：{COMPARE_CONCLUSION_LABEL[conclusion]}
+                      {reviewed ? '（已复核）' : ''}（差异 {compare.diffCount} 字）
+                    </Tag>
+                  );
+                })}
             </Space>
           </Card>
         </Col>

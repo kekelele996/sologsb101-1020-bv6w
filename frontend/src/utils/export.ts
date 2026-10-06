@@ -11,7 +11,7 @@ import { STELE_FORM_LABEL } from '@/types/stele';
 import { INK_TONE_LABEL, RUBBING_METHOD_LABEL, RUBBING_STATE_LABEL } from '@/types/rubbing';
 import { LOSS_SEVERITY_LABEL, LOSS_TYPE_LABEL } from '@/types/loss';
 import { SEAL_TYPE_LABEL, sealPositionWeight } from '@/types/seal';
-import { COMPARE_CONCLUSION_LABEL } from '@/types/compare';
+import { COMPARE_CONCLUSION_LABEL, effectiveConclusion, isCompareReviewed } from '@/types/compare';
 import { diffLosses, encodeCoord, sortLosses } from './collate';
 import type { RubbingSnapshot } from './db';
 
@@ -90,10 +90,20 @@ export function buildCatalogCard(
   steleCompares.forEach((compare) => {
     const a = rubbings.find((item) => item.id === compare.rubbingIdA);
     const b = rubbings.find((item) => item.id === compare.rubbingIdB);
+    const reviewed = isCompareReviewed(compare);
+    const conclusion = effectiveConclusion(compare);
+    // 字位补标后重算差异字数，与存档值不一致则标待重核
+    const recomputed = diffLosses(
+      losses.filter((loss) => loss.rubbingId === compare.rubbingIdA),
+      losses.filter((loss) => loss.rubbingId === compare.rubbingIdB),
+    ).diffCount;
+    const needsRecheck = recomputed !== compare.diffCount;
     lines.push(
-      `　${compare.date}　A：第 ${a?.versionNo ?? '?'} 版　B：第 ${b?.versionNo ?? '?'} 版　差异 ${compare.diffCount} 字　结论 ${
-        COMPARE_CONCLUSION_LABEL[compare.conclusion]
-      }　操作人 ${compare.operator || '未填'}`,
+      `　${compare.date}　A：第 ${a?.versionNo ?? '?'} 版　B：第 ${b?.versionNo ?? '?'} 版　差异 ${compare.diffCount} 字${
+        needsRecheck ? `（字位补标后重算 ${recomputed} 字，待重核）` : ''
+      }　结论 ${COMPARE_CONCLUSION_LABEL[conclusion]}${reviewed ? '（已复核）' : ''}　操作人 ${
+        compare.operator || '未填'
+      }${reviewed ? `　复核人 ${compare.reviewer || '未填'}　复核日期 ${compare.reviewDate}` : ''}`,
     );
   });
   return lines.join('\n');
